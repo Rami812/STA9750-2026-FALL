@@ -1,0 +1,37 @@
+---
+title: "Saadman Rami Khan"
+---
+
+Hi, my name is Rami! This is my 3rd semester in the Master's program, and I also completed my undergraduate degree at Baruch College.
+
+My interests are:
+
+- Applied Economics
+- Machine Learning & Data Science
+- Running and the gym
+- Matcha/Coffee
+
+```{r}
+print("Baruch Proud!")
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+if(!require("leaflet")){
+    options(repos=c(CRAN="https://cloud.r-project.org"))
+    install.packages("leaflet")
+    stopifnot(require("leaflet"))
+}
+
+baruch_longitude <- -73.98333
+baruch_latitude  <- +40.74028
+
+leaflet() |>
+  addTiles() |>
+  setView(baruch_longitude, baruch_latitude, zoom=17) |>
+  addPopups(baruch_longitude, baruch_latitude, 
+            "I am a Master's student at <b>Baruch College</b>!")
+```
