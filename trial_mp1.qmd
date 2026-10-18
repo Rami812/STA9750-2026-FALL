@@ -1,0 +1,793 @@
+---
+title: "MP1"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show R code"
+    code-tools: true
+---
+## Intro:
+
+Netflix made the novel idea of streaming a wide range of movies/tv-series via the internet with just a subscription into a reality. Due to the popularity of the platform, the term "Netflix & chill" has become a common phrase.  
+
+In this project, we  draw insights from the viewership data Netflix provides to get a better understanding of how different shows are engaging with their audiences. 
+## Data Acquisition:
+The following code was made by Professor Michael Weyland to compile Netflix's "What We Watched" report from 2023 to 2026. The following features were acquired:
+
+- year
+- period_start
+- period_end
+- Title
+- Runtime
+- Hours Viewed
+- Views
+- Release Date
+- Available Globally?
+- live_event
+
+
+```{r}
+#' Acquire Netflix What We Watched Reports
+#' 
+#' This function will acquire and standardize all data for MP#01
+#' from Netflix. Because Netflix hosts the data files behind a CDN, we
+#' are accessing the release pages and automatically extracting links to the
+#' relevant files (with CDN hash). 
+#' 
+#' After import, files are stacked vertically and some basic cleaning is
+#' performed. 
+load_netflix_data <- function(){
+  # Note to students: Make sure you have installed the tidyverse and fs packages
+  #                   before beginning this assignment. If you aren't sure,
+  #                   simply run `library(tidyverse)` at your R Console and, if
+  #                   you don't see an error message, `tidyverse` has been 
+  #                   installed. (Same for `fs`) If you still need to install
+  #                   either package, use the `install.packages` function as 
+  #                   demonstrated in class.
+  library(tidyverse)
+  library(rvest)
+  library(readxl)
+  library(fs)
+  
+  data_dir <- path("data", "mp01")
+    
+  if(!dir_exists(data_dir)){
+    dir_create(data_dir, showWarnings=FALSE, recurse=TRUE)
+  }
+  
+  NETFLIX_URLS <- list(
+    `2023H1` = "https://about.netflix.com/news/what-we-watched-a-netflix-engagement-report",
+    `2023H2` = "https://about.netflix.com/news/what-we-watched-the-second-half-of-2023",
+    `2024H1` = "https://about.netflix.com/news/what-we-watched-the-first-half-of-2024",
+    `2024H2` = "https://about.netflix.com/news/what-we-watched-the-second-half-of-2024",
+    `2025H1` = "https://about.netflix.com/news/what-we-watched-the-first-half-of-2025",
+    `2025H2` = "https://about.netflix.com/news/what-we-watched-the-second-half-of-2025",
+    `2026H1` = "https://about.netflix.com/news/what-we-watched-the-first-half-of-2026"
+  )
+  
+  download_if_needed <- function(url, local){
+    if(!file_exists(local)){
+      download.file(url, local, quiet = TRUE, mode = "wb")
+    }
+    
+    return(local)
+  }
+    
+  NETFLIX_URLS |> 
+    map(read_html) |> 
+    map(html_element, xpath = "//a[contains(@href, '.xlsx')]") |> 
+    map_chr(html_attr, "href") |> 
+    enframe("period", "url") |> 
+   mutate(path = path(data_dir, paste0(period, ".xlsx")), 
+          path = map2(url, path, download_if_needed), 
+          data = map(path, read_excel, skip=3, na="*"), 
+          data = map(data, \(x) x |> mutate(`Release Date` = as.Date(`Release Date`)))) |>
+    unnest(data) |> 
+    select(-url, -path) |> 
+    mutate(year=str_sub(period, 1, 4), 
+           half=str_sub(period, start=6), 
+           period_start = make_date(year, if_else(half==1, 1, 7), 1), 
+           period_end = make_date(year, if_else(half==1, 6, 12), if_else(half==1, 30, 31))) |> 
+    filter(!is.na(`Hours Viewed`)) |> 
+    mutate(live_event = !is.na(Runtime) & str_detect(Runtime, "\\d+:\\d+\\*"), 
+           clean_time = str_remove(Runtime, fixed("*")),
+           Runtime = 60 * hour(hm(clean_time)) + minute(hm(clean_time))) |>
+    select(-clean_time) |>
+    mutate(Runtime = coalesce(Runtime, mean(Runtime, na.rm=TRUE)), 
+           .by=Title, 
+           Title = stringi::stri_trans_general(Title, "Latin-ASCII"),
+           Title = str_remove(Title, " // .*"), 
+           Title = str_remove(Title, "[^[:ascii:]].*"), 
+           Title = str_trim(Title)) |>
+    filter_out(Title == "") |>
+    select(year, 
+           period, 
+           period_start, 
+           period_end, 
+           Title, 
+           -half, 
+           Runtime, 
+           Views, 
+           `Hours Viewed`, 
+           `Release Date`,
+           `Available Globally?`, 
+           live_event)
+}
+
+NETFLIX_DATA <- load_netflix_data()
+```
+
+## Data Cleaning
+```{r}
+
+NETFLIX_DATA <- NETFLIX_DATA |>
+  rename(runtime = Runtime, 
+         views  = Views,
+         hours_viewed='Hours Viewed',
+         release_date='Release Date',
+         available_globally='Available Globally?'
+  )
+
+NETFLIX_DATA <- NETFLIX_DATA|> mutate(
+  year = as.integer(year), 
+  available_globally = available_globally == "Yes" # Recall that double equals (==) checks for equality
+)
+```
+Using the code above, we standardized the column names so that words are separated by underscores (`_`). We also converted `available_globally` into a Boolean variable. The summary statistics of the modified dataset confirm that `available_globally` contains Boolean values (`TRUE`/`FALSE`) as indicated from the identification as a logical variable. Additionally, by examining the 11 column names, we can verify that all column names containing multiple words use underscores as separators.
+```{r}
+glimpse(NETFLIX_DATA)
+library(skimr)
+skim(NETFLIX_DATA)
+```
+##EDA
+We perform exploratory data analysis by answering the following questions with relevant code segments below:
+
+# Date range covered by the dataset
+```{r}
+library(dplyr)
+library(stringr)
+library(scales)
+
+date_range <- NETFLIX_DATA %>%
+  summarise(
+    start_date = min(period_start, na.rm = TRUE),
+    end_date = max(period_end, na.rm = TRUE)
+  )
+date_range
+```
+
+We find that our dataset covers the period from `r format(date_range$start_date, "%B %d, %Y")` to `r format(date_range$end_date, "%B %d, %Y")`.
+
+# Number of shows and movies covered
+```{r}
+num_titles <- NETFLIX_DATA %>%
+  summarise(n_titles = n_distinct(Title)) %>%
+  pull(n_titles)
+
+num_titles
+```
+
+The number of distinct shows and movies is `r scales::comma(num_titles)`.
+
+# Total hours that have been spent watching the Bridgerton universe?
+```{r}
+bridgerton_hours <- NETFLIX_DATA %>%
+  filter(str_detect(Title, regex("Bridgerton", ignore_case = TRUE))) %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+bridgerton_hours
+```
+After searching for all titles containing the text Bridgerton, we find that the total viewing time is `r scales::comma(bridgerton_hours)` hours.
+
+# Total hours that have been spent watching the five seasons of Stranger Things?
+
+```{r}
+stranger_things_hours <- NETFLIX_DATA %>%
+  filter(str_detect(Title, regex("Stranger Things", ignore_case = TRUE))) %>%
+  filter_out(str_detect(Title, regex("Beyond Stranger Things",
+                                     ignore_case = TRUE))) %>%
+  filter_out(str_detect(Title, regex("Tales from", ignore_case = TRUE))) %>%
+  filter_out(str_detect(Title, regex("Fireplace", ignore_case = TRUE))) %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+stranger_things_hours
+```
+
+The five seasons of Stranger Things have accumulated `r scales::comma(stranger_things_hours)` hours of viewing time in total.
+
+# Percentage of total watch time  spent on the Top 10 titles of 2026H1
+
+```{r}
+# Step 1: Identify the Top 10 titles in 2026H1
+top10_2026H1 <- NETFLIX_DATA %>%
+  filter(period == "2026H1") %>%
+  arrange(desc(hours_viewed)) %>%
+  slice_head(n = 10)
+
+# Step 2: Sum viewing hours for the Top 10 titles
+top10_2026H1_hours <- top10_2026H1 %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 3: Calculate total viewing hours across the entire dataset
+all_hours <- NETFLIX_DATA %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 4: Calculate the percentage of overall viewing hours
+top10_2026H1_pct_o <- top10_2026H1_hours / all_hours
+
+top10_2026H1_pct_o
+
+#For % of top 10 titles out of all total records in 2026H1
+# Step 1: Identify the Top 10 titles in 2026H1
+top10_2026H1 <- NETFLIX_DATA %>%
+  filter(period == "2026H1") %>%
+  arrange(desc(hours_viewed)) %>%
+  slice_head(n = 10)
+
+# Step 2: Calculate viewing hours for the Top 10 titles
+top10_2026H1_hours <- top10_2026H1 %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 3: Calculate total viewing hours for ALL titles in 2026H1
+total_2026H1_hours <- NETFLIX_DATA %>%
+  filter(period == "2026H1") %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 4: Calculate the percentage of 2026H1 viewing hours
+top10_2026H1_pct <- top10_2026H1_hours / total_2026H1_hours
+
+# Display the percentage
+scales::percent(top10_2026H1_pct, accuracy = 0.01)
+```
+
+We find that the top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct_o, accuracy = 0.01)` of total viewing hours recorded in the dataset.
+
+The Top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct, accuracy = 0.01)`
+of total viewing hours during 2026H1.
+
+# Fraction of Netflix’s catalog that is globally available
+```{r}
+
+global_availability <- NETFLIX_DATA %>%
+  summarise(
+    total_titles = n_distinct(Title),
+    global_titles = n_distinct(Title[available_globally %in% TRUE]),
+    title_fraction = global_titles / total_titles,
+    total_hours = sum(hours_viewed, na.rm = TRUE),
+    global_hours = sum(hours_viewed[available_globally %in% TRUE],
+                       na.rm = TRUE),
+    hours_fraction = global_hours / total_hours
+  )
+
+global_availability
+```
+We find that `r scales::comma(global_availability$global_titles)` of `r scales::comma(global_availability$total_titles)` distinct titles are globally available. This represents `r scales::percent(global_availability$title_fraction, accuracy = 0.01)` of the catalog.
+
+
+# Top title in each period and respective share of total viewing hours
+
+The  table below shows which title had the most viewing time for each report period and its contribution to the total viewing time for the same period. 
+
+```{r}
+library(tidyverse)
+library(gt)
+library(scales)
+top_title_by_period <- NETFLIX_DATA %>%
+  filter(!is.na(hours_viewed)) %>%
+  group_by(period) %>%
+  mutate(
+    period_total_hours = sum(hours_viewed, na.rm = TRUE),
+    viewership_fraction = hours_viewed / period_total_hours
+  ) %>%
+  slice_max(
+    order_by = hours_viewed,
+    n = 1,
+    with_ties = FALSE
+  ) %>%
+  ungroup() %>%
+  select(
+    period,
+    Title,
+    hours_viewed,
+    period_total_hours,
+    viewership_fraction
+  ) %>%
+  arrange(period)
+
+top_title_by_period %>%
+  gt() %>%
+  cols_label(
+    period = "Reporting Period",
+    Title = "Top Title",
+    hours_viewed = "Top Title Hours Viewed",
+    period_total_hours = "Total Hours Viewed",
+    viewership_fraction = "Share of Viewing Time"
+  ) %>%
+  tab_header(
+    title = "Top Netflix Title by Reporting Period",
+    subtitle = "The most-viewed title and its share of period viewing hours"
+  ) %>%
+  fmt_number(
+    columns = c(hours_viewed, period_total_hours),
+    decimals = 0
+  ) %>%
+  fmt_percent(
+    columns = viewership_fraction,
+    decimals = 2
+  ) %>%
+  cols_align(
+    align = "left",
+    columns = c(period, Title)
+  ) %>%
+  tab_source_note(
+    "Source: Netflix What We Watched reports, 2023–2026H1."
+  )
+```
+
+# Changes in Netflix catalog size and total run-time
+Catalog size is measured via the number of distinct titles in each period and are acquiring catalog runtime by summing runtimes into titles (for the sake of fewer extreme numbers, we are converting minutes to hours)
+```{r}
+# Step 1: Identify the Top 10 titles in 2026H1
+top10_2026H1 <- NETFLIX_DATA %>%
+  filter(period == "2026H1") %>%
+  arrange(desc(hours_viewed)) %>%
+  slice_head(n = 10)
+
+# Step 2: Sum viewing hours for the Top 10 titles
+top10_2026H1_hours <- top10_2026H1 %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 3: Calculate total viewing hours across the entire dataset
+all_hours <- NETFLIX_DATA %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 4: Calculate the percentage of overall viewing hours
+top10_2026H1_pct_o <- top10_2026H1_hours / all_hours
+
+top10_2026H1_pct_o
+
+#For % of top 10 titles out of all total records in 2026H1
+# Step 1: Identify the Top 10 titles in 2026H1
+top10_2026H1 <- NETFLIX_DATA %>%
+  filter(period == "2026H1") %>%
+  arrange(desc(hours_viewed)) %>%
+  slice_head(n = 10)
+
+# Step 2: Calculate viewing hours for the Top 10 titles
+top10_2026H1_hours <- top10_2026H1 %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 3: Calculate total viewing hours for ALL titles in 2026H1
+total_2026H1_hours <- NETFLIX_DATA %>%
+  filter(period == "2026H1") %>%
+  summarise(total_hours = sum(hours_viewed, na.rm = TRUE)) %>%
+  pull(total_hours)
+
+# Step 4: Calculate the percentage of 2026H1 viewing hours
+top10_2026H1_pct <- top10_2026H1_hours / total_2026H1_hours
+
+# Display the percentage
+scales::percent(top10_2026H1_pct, accuracy = 0.01)
+```
+
+We find that the top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct_o, accuracy = 0.01)` of total viewing hours recorded in the dataset.
+
+The Top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct, accuracy = 0.01)`
+of total viewing hours during 2026H1.
+
+# Fraction of Netflix’s catalog that is globally available
+```{r}
+
+global_availability <- NETFLIX_DATA %>%
+  summarise(
+    total_titles = n_distinct(Title),
+    global_titles = n_distinct(Title[available_globally %in% TRUE]),
+    title_fraction = global_titles / total_titles,
+    total_hours = sum(hours_viewed, na.rm = TRUE),
+    global_hours = sum(hours_viewed[available_globally %in% TRUE],
+                       na.rm = TRUE),
+    hours_fraction = global_hours / total_hours
+  )
+
+global_availability
+```
+We find that `r scales::comma(global_availability$global_titles)` of `r scales::comma(global_availability$total_titles)` distinct titles are globally available. This represents `r scales::percent(global_availability$title_fraction, accuracy = 0.01)` of the catalog.
+
+
+# Top title in each period and respective share of total viewing hours
+
+The  table below shows which title had the most viewing time for each report period and its contribution to the toal viewing time for the same period. 
+
+```{r}
+catalog_by_period <- NETFLIX_DATA %>%
+  distinct(period, Title, .keep_all = TRUE) %>%
+  group_by(period) %>%
+  summarise(
+    number_of_titles = n_distinct(Title),
+    total_runtime_hours = sum(runtime, na.rm = TRUE) / 60,
+    .groups = "drop"
+  ) %>%
+  arrange(period)
+
+catalog_by_period %>%
+  gt() %>%
+  cols_label(
+    period = "Reporting Period",
+    number_of_titles = "Number of Distinct Titles",
+    total_runtime_hours = "Total Catalog Runtime (Hours)"
+  ) %>%
+  tab_header(
+    title = "Netflix Catalog Size Over Time",
+    subtitle = "Number of titles and combined runtime by reporting period"
+  ) %>%
+  fmt_number(
+    columns = number_of_titles,
+    decimals = 0
+  ) %>%
+  fmt_number(
+    columns = total_runtime_hours,
+    decimals = 0
+  ) %>%
+  tab_source_note(
+    "Source: Netflix What We Watched reports, 2023–2026H1. Runtime is summed across distinct titles within each period."
+  )
+```
+
+# Titles with consistently high viewership across reporting periods
+The goal of this analysis to find Netflix gems that do not have viewing hours that reduce dramatically throughout different periods. We rank titles primarily based on their minimum observed view hours to identify content with a strong base of audience engagement while reporting variation in viewership. 
+
+```{r}
+consistent_titles <- NETFLIX_DATA %>%
+  group_by(Title) %>%
+  summarise(
+    number_of_periods = n_distinct(period),
+    average_hours_viewed = mean(hours_viewed, na.rm = TRUE),
+    minimum_hours_viewed = min(hours_viewed, na.rm = TRUE),
+    sd_hours_viewed = sd(hours_viewed, na.rm = TRUE),
+    cv_hours_viewed = sd_hours_viewed / average_hours_viewed,
+    .groups = "drop"
+  ) %>%
+  filter(
+    number_of_periods >= 4,
+    average_hours_viewed > 0
+  ) %>%
+  arrange(
+    desc(minimum_hours_viewed),
+    cv_hours_viewed
+  ) %>%
+  slice_head(n = 10)
+
+consistent_titles %>%
+  gt() %>%
+  cols_label(
+    Title = "Title",
+    number_of_periods = "Periods Appeared",
+    average_hours_viewed = "Average Hours Viewed",
+    minimum_hours_viewed = "Minimum Hours Viewed",
+    sd_hours_viewed = "Standard Deviation",
+    cv_hours_viewed = "Coefficient of Variation"
+  ) %>%
+  tab_header(
+    title = "Netflix's Most Consistent Titles",
+    subtitle = "Recurring titles ranked by their minimum observed viewing hours"
+  ) %>%
+  fmt_number(
+    columns = c(
+      average_hours_viewed,
+      minimum_hours_viewed,
+      sd_hours_viewed
+    ),
+    decimals = 0
+  ) %>%
+  fmt_number(
+    columns = cv_hours_viewed,
+    decimals = 2
+  ) %>%
+  cols_align(
+    align = "left",
+    columns = Title
+  ) %>%
+  tab_source_note(
+    "Method: Titles must appear in at least four reporting periods. Higher minimum viewing hours are prioritized, with lower relative variability used as a tie-breaker."
+  )
+```
+# Fraction of viewing time spent on shows vs movies
+As there are no indicator column if a title is a tv-series or a movie, we have to define a separation between the two. For our project, we have decided to classify a title as a show either of the following items is true:
+- Runtime is more than 240 minutes (four hours)
+- Titles contain the word: "Season"
+
+```{r}
+show_movie_share <- NETFLIX_DATA %>%
+  mutate(
+    content_type = case_when(
+      str_detect(
+        Title,
+        regex("\\bSeason\\b", ignore_case = TRUE)
+      ) ~ "Show",
+      runtime > 240 ~ "Show",
+      TRUE ~ "Movie"
+    )
+  ) %>%
+  group_by(period) %>%
+  summarise(
+    total_hours = sum(hours_viewed, na.rm = TRUE),
+    show_hours = sum(
+      hours_viewed[content_type == "Show"],
+      na.rm = TRUE
+    ),
+    movie_hours = sum(
+      hours_viewed[content_type == "Movie"],
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    show_share = show_hours / total_hours,
+    movie_share = movie_hours / total_hours
+  ) %>%
+  select(period, show_share, movie_share) %>%
+  arrange(period)
+
+show_movie_share %>%
+  gt() %>%
+  cols_label(
+    period = "Reporting Period",
+    show_share = "Shows: Share of Viewing Time",
+    movie_share = "Movies: Share of Viewing Time"
+  ) %>%
+  tab_header(
+    title = "Netflix Viewing Time by Content Type",
+    subtitle = "Estimated share of viewing hours spent on shows versus movies"
+  ) %>%
+  fmt_percent(
+    columns = c(show_share, movie_share),
+    decimals = 2
+  ) %>%
+  tab_source_note(
+    "Classification rule: Titles containing 'Season' or with runtime above 240 minutes are classified as shows; all others are classified as movies."
+  )
+```
+
+We find that over the observed periods, there have been a majority of shows compared to movies. 
+
+# Comparing live events with pre-taped content
+
+In order to compare the performance of live events and pre-taped content, we can utilize the variable-"views" that indicates the amount of audience reached instead of just hours viewed. 
+
+We calculate each category's average and median views to define "top tier" as being a part of the 10 highest-viewed title-period instances in each category. 
+
+```{r}
+# Step 1: Keep records with reported view counts and classify content
+viewership_data <- NETFLIX_DATA %>%
+  filter(!is.na(views)) %>%
+  mutate(
+    content_category = if_else(
+      live_event %in% TRUE,
+      "Live Events",
+      "Pre-taped Content"
+    )
+  )
+
+# Step 2: Calculate average and median views for each category
+overall_live_comparison <- viewership_data %>%
+  group_by(content_category) %>%
+  summarise(
+    number_of_observations = n(),
+    average_views = mean(views, na.rm = TRUE),
+    median_views = median(views, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 3: Identify the 10 highest-viewed observations in each category
+top_tier_comparison <- viewership_data %>%
+  group_by(content_category) %>%
+  slice_max(
+    order_by = views,
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  summarise(
+    top_10_average_views = mean(views, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Combine the results into one comparison table
+live_event_comparison <- overall_live_comparison %>%
+  left_join(
+    top_tier_comparison,
+    by = "content_category"
+  ) %>%
+  arrange(
+    match(
+      content_category,
+      c("Live Events", "Pre-taped Content")
+    )
+  )
+
+# Step 5: Format the results as a publication-quality table
+live_event_comparison %>%
+  gt() %>%
+  cols_label(
+    content_category = "Content Type",
+    number_of_observations = "Number of Observations",
+    average_views = "Average Views",
+    median_views = "Median Views",
+    top_10_average_views = "Average Views of Top 10 Titles"
+  ) %>%
+  tab_header(
+    title = "Live Events vs. Pre-taped Content",
+    subtitle = "Average audience reach and performance of top-viewed titles"
+  ) %>%
+  fmt_number(
+    columns = c(
+      number_of_observations,
+      average_views,
+      median_views,
+      top_10_average_views
+    ),
+    decimals = 0
+  ) %>%
+  tab_source_note(
+    "Method: Records with missing view counts are excluded. Top tier refers to the 10 highest-viewed title-period observations within each category."
+  )
+```
+We find that even though there were not that many live events, the average views across all of them was actually higher than the pre-taped content. This indicates the presence of some outlier live events that were drastically more popular than others. 
+
+# Memo
+Dear Board of Directors,
+
+With the continual increase in the number of competitors in the streaming market, we have realize how crucial our broader content strategy is for the firm's future. As such, we have performed rigorous analysis on our historical data in relation to content and viewership to propose the following for 2027 and beyond:
+
+- To invest in creating more movies shows compared to TV-Series
+
+- To stream productions more globally vs regionally
+
+The basis of our recommendations comes from investigating which of the aforementioned content types lead to highest return on run-time creation investment in terms of views. While there are nuances of how the cost of each content production can be considered- in terms monetary investment, time taken to finish from start to end etc. we believe ratio of views by run-time indicates the most return on effort for content. We believe by from an operations lens, this ratio encompasses indications of costs as well as potential upside for potential projects and serves well as an unitary value for comparison across the suite of content types that we offer. 
+
+## Movies vs TV-Series
+Based on the initial comparison of movies and TV-series using the criteria of viewing time across periods (included in this report under the title-"Fraction of viewing time spent on shows vs movies"), we found that a large majority of views were driven from TV-shows consistently. However, due to likely the production effort required indicated via on-screen time, views/run-time ratio does not favor TV-series but instead actually favors movies based on the box and whisker plot shown below. As such, if we focus to optimize our production investments into movies compared to TV-series we are likely to get a higher number of views per screen time. 
+
+```{r}
+library(tidyverse)
+library(scales)
+
+# Step 1: Prepare the data and calculate views per runtime minute
+NETFLIX_PLOT_DATA <- NETFLIX_DATA %>%
+  mutate(
+    # Classify titles as shows or movies
+    content_type = case_when(
+      str_detect(
+        Title,
+        regex("\\bSeason\\b", ignore_case = TRUE)
+      ) ~ "Show",
+      !is.na(runtime) & runtime > 240 ~ "Show",
+      TRUE ~ "Movie"
+    ),
+
+    # Classify global availability
+    availability_status = case_when(
+      available_globally %in% TRUE ~ "Globally Available",
+      available_globally %in% FALSE ~ "Not Globally Available",
+      TRUE ~ NA_character_
+    ),
+
+    # Calculate views per runtime minute
+    views_per_runtime = views / runtime
+  ) %>%
+  mutate(
+    content_type = factor(
+      content_type,
+      levels = c("Show", "Movie")
+    ),
+    availability_status = factor(
+      availability_status,
+      levels = c(
+        "Globally Available",
+        "Not Globally Available"
+      )
+    )
+  )
+
+
+# Step 2: Plot A - Shows vs. Movies
+plot_shows_movies <- NETFLIX_PLOT_DATA %>%
+  filter(
+    !is.na(content_type),
+    !is.na(views_per_runtime),
+    is.finite(views_per_runtime),
+    views_per_runtime > 0
+  ) %>%
+  ggplot(
+    aes(
+      x = content_type,
+      y = views_per_runtime,
+      fill = content_type
+    )
+  ) +
+  geom_boxplot(
+    alpha = 0.8,
+    outlier.alpha = 0.25
+  ) +
+  scale_y_log10(
+    labels = scales::label_number(
+      scale_cut = scales::cut_short_scale()
+    )
+  ) +
+  labs(
+    title = "Viewership per Runtime Minute: Shows vs. Movies",
+    subtitle = "All available reporting periods combined",
+    x = "Content Type",
+    y = "Views per Runtime Minute (Log Scale)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+
+# Step 3: Plot B - Global vs. Not Globally Available
+plot_global_availability <- NETFLIX_PLOT_DATA %>%
+  filter(
+    !is.na(availability_status),
+    !is.na(views_per_runtime),
+    is.finite(views_per_runtime),
+    views_per_runtime > 0
+  ) %>%
+  ggplot(
+    aes(
+      x = availability_status,
+      y = views_per_runtime,
+      fill = availability_status
+    )
+  ) +
+  geom_boxplot(
+    alpha = 0.8,
+    outlier.alpha = 0.25
+  ) +
+  scale_y_log10(
+    labels = scales::label_number(
+      scale_cut = scales::cut_short_scale()
+    )
+  ) +
+  labs(
+    title = "Viewership per Runtime Minute by Global Availability",
+    subtitle = "All available reporting periods combined",
+    x = "Global Availability",
+    y = "Views per Runtime Minute (Log Scale)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 10, hjust = 1),
+    panel.grid.minor = element_blank()
+  )
+
+
+# Step 4: Display both plots in the rendered Quarto document
+print(plot_shows_movies)
+```
+## Globally vs Regionally 
+Based on the initial calculation of the percentage of titles that are currently globally available, we found that 24.60% are globally available. Even though these types of content are seemingly small, they did outperform their counterparts by having a higher views to run time ratio. This might likely be just due to the fact that more individuals have availability to the show; however the fact that the median ratio of globally available titles having similar results as the 75th percentile of those that are not available globally based on the plot below, indicates that they are resonating with local as well as global audiences. By having higher titles for a global audience in mind, we can potentially attract a higher number of customers to the platform for each runtime that we provide. 
+```{r}
+print(plot_global_availability)
+```
+Our next steps are going to be understanding more of the cost structure of projects to fully determine the cost benefits of the recommendations provided. However, based on the current available data, we believe having more moves as well as globally available content can lead to higher number of views per run-time that we provide, hence more potential revenue per investment that we make. 
+
+::: {.callout-note title="AI Usage Statement" collapse="true"}
+
+ChatGPT was used to help write the code in this project, but all non-code text was generated without the use of any Generative AI tools. 
+:::
+
+

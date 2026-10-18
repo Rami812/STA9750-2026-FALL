@@ -383,6 +383,7 @@ We find that the top 10 titles of 2026H1 accounted for `r scales::percent(top10_
 
 The Top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct, accuracy = 0.01)`
 of total viewing hours during 2026H1.
+#Trial
 
 # Fraction of Netflix’s catalog that is globally available
 ```{r}
