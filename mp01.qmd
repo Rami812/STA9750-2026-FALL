@@ -379,7 +379,7 @@ top10_2026H1_pct <- top10_2026H1_hours / total_2026H1_hours
 scales::percent(top10_2026H1_pct, accuracy = 0.01)
 ```
 
-We find that the top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct_o, accuracy = 0.01)` of total viewing hours recorded in the dataset.
+We find that the top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct_o, accuracy = 0.01)` of total viewing hours recorded in our dataset.
 
 The Top 10 titles of 2026H1 accounted for `r scales::percent(top10_2026H1_pct, accuracy = 0.01)`
 of total viewing hours during 2026H1.
