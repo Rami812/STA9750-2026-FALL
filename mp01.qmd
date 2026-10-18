@@ -417,7 +417,7 @@ catalog_by_period <- NETFLIX_DATA %>%
     .groups = "drop"
   ) %>%
   arrange(period)
-
+#Trial
 catalog_by_period %>%
   gt() %>%
   cols_label(
