@@ -6,7 +6,7 @@ title: "mp02"
 Our results are based on analyzing different agency’s emission rates across fuel types, modes of transportation while accounting for their respective sizes across all the States in the US.
 MP02:
 Intro:
-In this project, we take the role of an ExecExecutive Director of the Green Transit Alliance (GTA) and publish annual awards in relation to  the “greenest” public transit agencies. Our main criteria of estimating effective emissions reductions by agency is based on a combination of:
+In this project, we take the role of an Executive Director of the Green Transit Alliance (GTA) and publish annual awards in relation to  the “greenest” public transit agencies. Our main criteria of estimating effective emissions reductions by agency is based on a combination of:
 - Local ridership data
 - Emissions estimates of public transit vehicles
 We compare emission records to those that which would have happened if all riders would have driven to their destination. We will be utilizing the following datasets for this project:
@@ -15,7 +15,7 @@ We compare emission records to those that which would have happened if all rider
 - Transit Service Provided
 
 The private-car comparison figures used at the end of this report come from the EPA's [Greenhouse Gas Emissions from a Typical Passenger Vehicle](https://www.epa.gov/greenvehicles/greenhouse-gas-emissions-typical-passenger-vehicle)
-(which indciates that ~400 g/0.882 lb CO2 per vehicle-mile) and the FHWA's [Average Vehicle Occupancy Factors](https://www.fhwa.dot.gov/tpm/guidance/avo_factors.pdf)(which indicates that ~1.7 people per car, derived from the 2017 National Household Travel Survey). If we divide the two figures we get an emissions-per-passenger-mile baseline that can be used to compare to the transit figures for the winner of each category.
+(which indicates that ~400 g/0.882 lb CO2 per vehicle-mile) and the FHWA's [Average Vehicle Occupancy Factors](https://www.fhwa.dot.gov/tpm/guidance/avo_factors.pdf)(which indicates that ~1.7 people per car, derived from the 2017 National Household Travel Survey). If we divide the two figures we get an emissions-per-passenger-mile baseline that can be used to compare to the transit figures for the winner of each category.
 
 ## Data Acquisition:
 
@@ -295,8 +295,7 @@ glimpse(NTD_SERVICE)
 As we see that `ntd_id` is a common column key between `EIA_SEP_REPORT` and `NTD_SERVICE`, we know we can use the common column to join the two datasets.  However, as one table reads the data  from an Excel file and the other from a CSV returned by
 an API query (whose source column is `_5_digit_ntd_id`), we can see that the values are not in the same format.
 
-`NTD_ENERGY$ntd_id` is numeric (e.g. `1`) whereas
-`NTD_SERVICE$ntd_id` is a zero-padded 5-digit string (e.g.`"00001"`). In order for easier mapping, we zero-pad `NTD_ENERGY`'s id to match before joining them later:
+`NTD_ENERGY$ntd_id` is numeric (e.g. `1`) whereas `NTD_SERVICE$ntd_id` is a zero-padded 5-digit string (e.g.`"00001"`). In order for easier mapping, we zero-pad `NTD_ENERGY`'s id to match before joining them later:
 
 ```{r}
 #| code-fold: true
@@ -314,7 +313,7 @@ NTD_SERVICE |> select(ntd_id) |> head(3)
 
 ### Checking Data Distributions
 
-We then use the skim() function to get an overall idea of the different types of data that are availble across the data tables:
+We then use the skim() function to get an overall idea of the different types of data that are available across the data tables:
 
 ```{r}
 #| code-fold: true
