@@ -547,7 +547,7 @@ missing_states <- setdiff(state.abb, unique(NTD_SERVICE$state))
 missing_states
 ```
 
-Comparing the `state` column of `NTD_SERVICE` against R's built-in `state.abb` vector leaves `r length(missing_states)` missing states, so `r if(length(missing_states) == 0) "every one of the 50 states" else paste(length(state.abb) - length(missing_states), "of the 50 states")` has at least one NTD-reporting transit agency in this data.
+Comparing the `state` column of `NTD_SERVICE` against R's built-in `state.abb` vector leaves `r length(missing_states)` missing states, so all 50 states are represented in the dataset.
 
 ## Calculating Total Emissions
 
